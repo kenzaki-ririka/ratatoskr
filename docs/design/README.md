@@ -1,6 +1,7 @@
 # Ratatoskr 技术设计文档索引
 
 - 概览（总体设计）：[overview.md](overview.md)
+- 主界面与功能设计：[home-ui.md](home-ui.md)
 - 无障碍采集（Assists）：[accessibility.md](accessibility.md)
 - 悬浮球与候选面板：[floating-ui.md](floating-ui.md)
 - AI 集成与协议：[ai-integration.md](ai-integration.md)

@@ -9,9 +9,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.neon10.ratatoskr.ui.theme.RatatoskrTheme
+import com.neon10.ratatoskr.ui.AppPage
+import com.neon10.ratatoskr.ui.components.AppNavigationBar
+import com.neon10.ratatoskr.ui.pages.HomeScreen
+import com.neon10.ratatoskr.ui.pages.AiSettingsScreen
+import com.neon10.ratatoskr.ui.pages.HelpScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -19,11 +28,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             RatatoskrTheme {
-                Scaffold( modifier = Modifier.fillMaxSize() ) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                var page by remember { mutableStateOf(AppPage.HOME) }
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    bottomBar = { AppNavigationBar(page) { page = it } }
+                ) { innerPadding ->
+                    when (page) {
+                        AppPage.HOME -> HomeScreen(Modifier.padding(innerPadding))
+                        AppPage.AI_SETTINGS -> AiSettingsScreen(Modifier.padding(innerPadding))
+                        AppPage.HELP -> HelpScreen(Modifier.padding(innerPadding))
+                    }
                 }
             }
         }

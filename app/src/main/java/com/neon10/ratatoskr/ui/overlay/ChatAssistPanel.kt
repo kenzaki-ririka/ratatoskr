@@ -1,4 +1,4 @@
-package com.neon10.ratatoskr.ui.fx
+package com.neon10.ratatoskr.ui.overlay
 
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
@@ -19,6 +19,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,30 +41,38 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import kotlinx.coroutines.delay
-import com.neon10.ratatoskr.service.AiActionService
+import com.neon10.ratatoskr.ai.AiProvider
+import com.neon10.ratatoskr.data.ChatContextStore
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 
-data class FxAction(val label: String, val onClick: () -> Unit = {})
+data class ChatAction(val title: String, val text: String, val onClick: () -> Unit = {})
+
 @Composable
-fun FxFloatingPanel(actions: List<FxAction> = listOf(
-    FxAction("A"), FxAction("B"), FxAction("C"), FxAction("D")
-)) {
+fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
     var expanded by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var panelActions by remember { mutableStateOf(actions) }
     var closingByAction by remember { mutableStateOf(false) }
-    var pendingAction by remember { mutableStateOf<FxAction?>(null) }
+    var pendingAction by remember { mutableStateOf<ChatAction?>(null) }
     var boxW by remember { mutableStateOf(0f) }
     var boxH by remember { mutableStateOf(0f) }
     var boxX by remember { mutableStateOf(0f) }
     var boxY by remember { mutableStateOf(0f) }
     val density = LocalDensity.current
     val config = LocalConfiguration.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val bubbleSize = 56.dp
 
     val containerSize = bubbleSize
@@ -164,8 +175,15 @@ fun FxFloatingPanel(actions: List<FxAction> = listOf(
         }
         LaunchedEffect(isLoading) {
             if (isLoading) {
-                val labels = AiActionService.fetchActions()
-                panelActions = labels.map { FxAction(it) }
+                val ctxStr = ChatContextStore.getLast()
+                val options = AiProvider.service.generateReplies(ctxStr, limit = 3)
+                panelActions = options.map { opt ->
+                    ChatAction(opt.title, opt.text) {
+                        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("reply", opt.text))
+                        Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show()
+                    }
+                }
                 isLoading = false
                 expanded = true
             }
@@ -182,28 +200,72 @@ fun FxFloatingPanel(actions: List<FxAction> = listOf(
 }
 
 @Composable
-private fun ChoicePanel(actions: List<FxAction>, onSelect: (FxAction) -> Unit) {
+private fun ChoicePanel(actions: List<ChatAction>, onSelect: (ChatAction) -> Unit) {
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         actions.forEach { action ->
-            ChoiceButton(text = action.label) { onSelect(action) }
+            ChoiceItem(action) { onSelect(action) }
         }
     }
 }
 
 @Composable
-private fun ChoiceButton(text: String, onClick: () -> Unit = {}) {
-    Button(
+private fun ChoiceItem(action: ChatAction, onClick: () -> Unit = {}) {
+    ElevatedCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-            contentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
-        )
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
     ) {
-        Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TitleChip(action.title, titleColor(action.title))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "建议",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = action.text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun TitleChip(title: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = color.copy(alpha = 0.14f),
+        contentColor = color
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun titleColor(title: String): Color {
+    return when (title) {
+        "保守" -> MaterialTheme.colorScheme.primary
+        "激进" -> MaterialTheme.colorScheme.error
+        "出其不意" -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.primary
     }
 }
