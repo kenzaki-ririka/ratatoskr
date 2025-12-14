@@ -3,6 +3,7 @@ package com.neon10.ratatoskr.ai
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
+import com.neon10.ratatoskr.data.AiSettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -19,13 +20,13 @@ class DeepSeekAiService : AiService {
     
     companion object {
         private const val TAG = "DeepSeekAiService"
-        
-        // TODO: 在此处填入你的 DeepSeek API Key
-        private const val API_KEY = "sk-"
-        
         private const val API_URL = "https://api.deepseek.com/chat/completions"
         private const val MODEL = "deepseek-chat"
     }
+    
+    // Read API key from settings store
+    private val apiKey: String
+        get() = AiSettingsStore.apiKey
     
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -65,7 +66,7 @@ class DeepSeekAiService : AiService {
             
             val httpRequest = Request.Builder()
                 .url(API_URL)
-                .addHeader("Authorization", "Bearer $API_KEY")
+                .addHeader("Authorization", "Bearer $apiKey")
                 .addHeader("Content-Type", "application/json")
                 .post(jsonBody.toRequestBody("application/json".toMediaType()))
                 .build()
