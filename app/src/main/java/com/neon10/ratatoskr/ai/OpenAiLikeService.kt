@@ -60,6 +60,11 @@ class OpenAiLikeService : AiService {
             )
 
             val jsonBody = gson.toJson(requestBody)
+            
+            // 打印请求 JSON 数据
+            Log.d(TAG, "===== AI Request JSON =====")
+            Log.d(TAG, jsonBody)
+            Log.d(TAG, "===========================")
 
             // 拼接完整的 URL，兼容 OpenAI 格式
             val fullUrl = "$baseUrl/chat/completions"
@@ -102,14 +107,15 @@ class OpenAiLikeService : AiService {
 
         for (line in lines) {
             val trimmed = line.trim()
-            // 简单的解析逻辑，兼容用户可能修改 Prompt 后格式微调的情况
-            // 你可以在这里增加更多鲁棒性，例如正则匹配
-            when {
-                trimmed.startsWith("【保守】") -> replies.add(ReplyOption("保守", trimmed.removePrefix("【保守】").trim()))
-                trimmed.startsWith("【激进】") -> replies.add(ReplyOption("激进", trimmed.removePrefix("【激进】").trim()))
-                trimmed.startsWith("【出其不意】") -> replies.add(ReplyOption("出其不意", trimmed.removePrefix("【出其不意】").trim()))
+            // 使用正则匹配任意【标签】格式，支持用户自定义风格
+            val regex = Regex("^【(.+?)】(.+)$")
+            val match = regex.find(trimmed)
+            if (match != null) {
+                val (label, content) = match.destructured
+                replies.add(ReplyOption(label, content.trim()))
+            } else if (trimmed.length > 2 && !trimmed.startsWith("【")) {
                 // 兼容没有前缀的情况，当作普通建议
-                !trimmed.startsWith("【") && trimmed.length > 2 -> replies.add(ReplyOption("建议", trimmed))
+                replies.add(ReplyOption("建议", trimmed))
             }
         }
 

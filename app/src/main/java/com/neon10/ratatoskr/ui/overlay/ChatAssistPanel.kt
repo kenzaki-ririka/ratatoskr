@@ -65,6 +65,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import com.neon10.ratatoskr.ai.AiProvider
 import com.neon10.ratatoskr.data.ChatContextStore
+import com.neon10.ratatoskr.data.AiSettingsStore
 import com.neon10.ratatoskr.data.ChatMessageCollector
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -237,7 +238,7 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                 
                 // Then, generate AI suggestions
                 val ctxStr = ChatContextStore.getLast()
-                val options = AiProvider.service.generateReplies(ctxStr, limit = 3)
+                val options = AiProvider.service.generateReplies(ctxStr, limit = AiSettingsStore.limit)
                 panelActions = options.map { opt ->
                     ChatAction(opt.title, opt.text) {
                         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
