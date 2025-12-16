@@ -48,7 +48,7 @@ class OpenAiLikeService : AiService {
         }
 
         try {
-            val userPrompt = "以下是聊天上下文：\n\n$context\n\n请根据以上对话，生成${limit}条回复建议。"
+            val userPrompt = "以下是聊天上下文：\n\n$context\n\n请根据以上对话，生成回复建议。"
 
             val requestBody = ChatRequest(
                 model = model,

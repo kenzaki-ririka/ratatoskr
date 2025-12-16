@@ -38,7 +38,7 @@ object ChatMessageCollector {
             // Get the accessibility service instance
             val service = ChatAccessibilityService.instance
             debugLog.appendLine("Service instance: ${service != null}")
-            // log.d(TAG, "Service instance: ${service != null}")
+            // Log.d(TAG, "Service instance: ${service != null}")
             
             if (service == null) {
                 debugLog.appendLine("Service is null, cannot collect")
@@ -51,13 +51,13 @@ object ChatMessageCollector {
             debugLog.appendLine("Method 1 - Active Window:")
             debugLog.appendLine("  Package: $appName")
             debugLog.appendLine("  Root node: ${rootNode != null}")
-            // log.d(TAG, "Active Window - Package: $appName, Root node: ${rootNode != null}")
+            // Log.d(TAG, "Active Window - Package: $appName, Root node: ${rootNode != null}")
             
             // Check if root node is empty (WeChat protection)
             val isEmptyRoot = rootNode != null && rootNode.childCount == 0 && rootNode.className == null
             if (isEmptyRoot) {
                 debugLog.appendLine("  Root is empty (possible protection), trying windows...")
-                // log.d(TAG, "Root is empty, trying getWindows()")
+                // Log.d(TAG, "Root is empty, trying getWindows()")
                 rootNode?.recycle()
                 rootNode = null
             }
@@ -67,7 +67,7 @@ object ChatMessageCollector {
                 debugLog.appendLine("Method 2 - Windows API:")
                 val windows = service.windows
                 debugLog.appendLine("  Total windows: ${windows?.size ?: 0}")
-                // log.d(TAG, "Total windows: ${windows?.size ?: 0}")
+                // Log.d(TAG, "Total windows: ${windows?.size ?: 0}")
                 
                 windows?.forEachIndexed { index, window ->
                     val windowRoot = window.root
@@ -75,7 +75,7 @@ object ChatMessageCollector {
                     val childCount = windowRoot?.childCount ?: 0
                     val className = windowRoot?.className?.toString()
                     debugLog.appendLine("  Window[$index]: pkg=$pkg, class=$className, children=$childCount")
-                    // log.d(TAG, "Window[$index]: pkg=$pkg, class=$className, children=$childCount")
+                    // Log.d(TAG, "Window[$index]: pkg=$pkg, class=$className, children=$childCount")
                     
                     // Use this window if it has content
                     if (windowRoot != null && childCount > 0) {
@@ -91,18 +91,19 @@ object ChatMessageCollector {
 
             if (rootNode != null) {
                 // Log root node info
-                // log.d(TAG, "Final Root class: ${rootNode.className}, childCount: ${rootNode.childCount}")
+                // Log.d(TAG, "Final Root class: ${rootNode.className}, childCount: ${rootNode.childCount}")
                 debugLog.appendLine("Final root - class: ${rootNode.className}, children: ${rootNode.childCount}")
                 
                 // 打印节点树（所有应用都打印，方便后续解析）
-                // log.d(TAG, "========== NODE TREE ($appName) ==========")
-                dumpNodeStructure(rootNode, 0)
-                // log.d(TAG, "========== END NODE TREE ==========")
+                //Log.d(TAG, "========== NODE TREE ($appName) ==========")
+                //dumpNodeStructure(rootNode, 0)
+                //Log.d(rootNode)
+                //Log.d(TAG, "========== END NODE TREE ==========")
                 
                 // TIM/QQ 专用：使用结构化解析（如果启用）
                 val isTIMOrQQ = appName == "com.tencent.tim" || appName == "com.tencent.mobileqq"
                 if (isTIMOrQQ && AiSettingsStore.enableStructuredParsing) {
-                    // log.d(TAG, "========== TIM/QQ STRUCTURED COLLECTION ==========")
+                    // Log.d(TAG, "========== TIM/QQ STRUCTURED COLLECTION ==========")
                     val timMessages = collectTIMMessages(rootNode)
                     messages.addAll(timMessages)
                     
@@ -111,11 +112,11 @@ object ChatMessageCollector {
                         val prefix = if (msg.isFromSelf) "[我]" else "[${msg.sender}]"
                         textParts.add("$prefix: ${msg.content}")
                     }
-                    // log.d(TAG, "TIM messages collected: ${timMessages.size}")
-                    // log.d(TAG, "========== END TIM COLLECTION ==========")
+                    // Log.d(TAG, "TIM messages collected: ${timMessages.size}")
+                    // Log.d(TAG, "========== END TIM COLLECTION ==========")
                 } else {
-                    // 其他应用：使用原始遍历逻辑
-                    collectTextsFromNode(rootNode, textParts, messages, 0, debugLog)
+                    // 非结构化模式或非 TIM/QQ：只收集纯文本，不创建结构化消息
+                    collectTextsFromNode(rootNode, textParts, 0, debugLog)
                 }
                 rootNode.recycle()
             } else {
@@ -129,7 +130,7 @@ object ChatMessageCollector {
 
         debugLog.appendLine("Total texts found: ${textParts.size}")
         debugLog.appendLine("Total messages: ${messages.size}")
-        // log.d(TAG, "Total texts: ${textParts.size}, messages: ${messages.size}")
+        // Log.d(TAG, "Total texts: ${textParts.size}, messages: ${messages.size}")
 
         // Clean and deduplicate
         val cleanedTexts = textParts
@@ -174,11 +175,11 @@ object ChatMessageCollector {
             val bounds = android.graphics.Rect().also { node.getBoundsInScreen(it) }
             val className = node.className?.toString()?.substringAfterLast(".") ?: ""
             
-            if (!text.isNullOrBlank() && bounds.top in 200..2100) {
+            if (!text.isNullOrBlank()) {
                 textNodes.add(TextNode(bounds.top, bounds.left, viewId, text, parentId, parentClass))
                 // 打印更多信息帮助分析
                 if (viewId == "9u") {
-                    // log.d(TAG, "MSG NODE: x=${bounds.left} parentId=$parentId parentClass=$parentClass text=${text.take(20)}")
+                    // Log.d(TAG, "MSG NODE: x=${bounds.left} parentId=$parentId parentClass=$parentClass text=${text.take(20)}")
                 }
             }
             
@@ -200,7 +201,7 @@ object ChatMessageCollector {
         val isGroupChat = hasNicknames
         
         // 获取私聊对方备注名（从标题栏 si5 获取）
-        val contactName = sorted.find { it.viewId == "si5" }?.text ?: "ta"
+        val contactName = sorted.find { it.viewId == "si5" }?.text ?: "对方"
         
         // 配对发送者和消息
         val messages = mutableListOf<ChatMessage>()
@@ -209,7 +210,7 @@ object ChatMessageCollector {
         
         // 使用屏幕宽度作为阈值
         val screenWidth = android.content.res.Resources.getSystem().displayMetrics.widthPixels
-        val midX = screenWidth / 3
+        val midX = screenWidth / 7
         
         for (node in sorted) {
             when {
@@ -275,14 +276,13 @@ object ChatMessageCollector {
         val currentPath = if (viewId.isNotEmpty()) "$path/$viewId" else "$path/$className"
         
         // 打印有文字或有 viewId 的节点
-        // if (text.isNotEmpty() || contentDesc.isNotEmpty() || viewId.isNotEmpty()) {
-        if(true) {
+        if (text.isNotEmpty() || contentDesc.isNotEmpty() || viewId.isNotEmpty()) {
+        //if(true) {
             val indent = "  ".repeat(minOf(depth, 6))
             Log.d(TAG, "$indent[$className] id=$viewId x=${bounds.left} y=${bounds.top} text=\"$text\"")
         }
         
-        // 只遍历到深度 15，避免无限递归
-        if (depth < 15) {
+        if (depth < 50) {
             for (i in 0 until node.childCount) {
                 val child = node.getChild(i)
                 if (child != null) {
@@ -302,59 +302,17 @@ object ChatMessageCollector {
     private fun collectTextsFromNode(
         node: AccessibilityNodeInfo,
         textParts: MutableList<String>,
-        messages: MutableList<ChatMessage>,
         depth: Int,
-        debugLog: StringBuilder,
-        parentContext: NodeContext = NodeContext()
+        debugLog: StringBuilder
     ) {
         try {
-            val indent = "  ".repeat(depth)
-            
             // Get node properties
             val text = node.text?.toString()
             val contentDesc = node.contentDescription?.toString()
-            val className = node.className?.toString() ?: "unknown"
-            val viewId = node.viewIdResourceName ?: ""
-            
-            // Determine if this is a self/other message based on viewId
-            var currentContext = parentContext
-            
-            // TIM/QQ common patterns for identifying self vs others
-            val isSelfIndicator = viewId.contains("right", ignoreCase = true) ||
-                    viewId.contains("self", ignoreCase = true) ||
-                    viewId.contains("mine", ignoreCase = true) ||
-                    viewId.contains("send", ignoreCase = true)
-            
-            val isOtherIndicator = viewId.contains("left", ignoreCase = true) ||
-                    viewId.contains("other", ignoreCase = true) ||
-                    viewId.contains("recv", ignoreCase = true) ||
-                    viewId.contains("peer", ignoreCase = true)
-            
-            if (isSelfIndicator) {
-                currentContext = currentContext.copy(isFromSelf = true)
-            } else if (isOtherIndicator) {
-                currentContext = currentContext.copy(isFromSelf = false)
-            }
-            
-            // Log nodes with text or interesting viewIds (for deeper analysis)
-            val hasText = !text.isNullOrBlank()
-            val hasInterestingViewId = viewId.isNotEmpty() && 
-                    (viewId.contains("chat") || viewId.contains("msg") || 
-                     viewId.contains("text") || viewId.contains("nick") ||
-                     viewId.contains("avatar") || viewId.contains("bubble"))
-            
-            // 打印所有有文字的节点（用于 TIM 分析）
-            if (hasText) {
-                val bounds = android.graphics.Rect().also { node.getBoundsInScreen(it) }
-                val senderInfo = if (currentContext.isFromSelf) "[我]" else "[对方]"
-                //// log.d(TAG, "TEXT: $senderInfo y=${bounds.top} viewId='$viewId' text='${text?.take(40)}'")
-            }
 
-            // Add text as message with sender info
+            // Add text to parts (pure text, no sender info)
             if (!text.isNullOrBlank()) {
                 textParts.add(text)
-                // Try to parse as a chat message with sender context
-                parseAsMessage(text, currentContext.isFromSelf)?.let { messages.add(it) }
             }
 
             // Also check contentDescription
@@ -366,7 +324,7 @@ object ChatMessageCollector {
             for (i in 0 until node.childCount) {
                 val child = node.getChild(i)
                 if (child != null) {
-                    collectTextsFromNode(child, textParts, messages, depth + 1, debugLog, currentContext)
+                    collectTextsFromNode(child, textParts, depth + 1, debugLog)
                     child.recycle()
                 }
             }

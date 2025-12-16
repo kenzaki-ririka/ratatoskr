@@ -97,22 +97,8 @@ class DeepSeekAiService : AiService {
     }
     
     private fun buildSystemPrompt(prefs: StylePrefs): String {
-        return """你是一个聊天回复助手。根据用户提供的聊天上下文，生成3条回复建议。
-
-每条回复需要标注风格类型：
-1. 【保守】- 安全、礼貌、不容易出错的回复
-2. 【激进】- 积极推进关系或话题的回复
-3. 【出其不意】- 有趣、幽默或创意的回复
-
-请按以下格式输出，每条回复一行：
-【保守】回复内容
-【激进】回复内容
-【出其不意】回复内容
-
-注意：
-- 回复要自然、口语化
-- 符合聊天场景的语境
-- 每条回复控制在50字以内"""
+        // 使用可配置的 systemPrompt
+        return AiSettingsStore.systemPrompt
     }
     
     private fun buildUserPrompt(context: String, limit: Int): String {
