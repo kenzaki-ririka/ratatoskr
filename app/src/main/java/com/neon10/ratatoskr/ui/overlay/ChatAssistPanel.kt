@@ -377,13 +377,25 @@ private fun CollectedMessagesPanel(
 
 @Composable
 private fun MessageItem(msg: ChatMessageCollector.ChatMessage) {
-    Text(
-        text = msg.content,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurface,
-        maxLines = 3,
-        overflow = TextOverflow.Ellipsis
-    )
+    val senderLabel = if (msg.isFromSelf) "[我]" else "[${msg.sender ?: "对方"}]"
+    Column {
+        Text(
+            text = senderLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (msg.isFromSelf) 
+                MaterialTheme.colorScheme.primary 
+            else 
+                MaterialTheme.colorScheme.secondary,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+        )
+        Text(
+            text = msg.content,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 private fun getAppDisplayName(packageName: String?): String {

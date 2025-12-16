@@ -15,6 +15,7 @@ object AiSettingsStore {
     private const val KEY_BASE_URL = "base_url"
     private const val KEY_MODEL = "model"
     private const val KEY_SYSTEM_PROMPT = "system_prompt"
+    private const val KEY_STRUCTURED_PARSING = "structured_parsing"
 
     const val DEFAULT_BASE_URL = "https://api.deepseek.com" // 或者 https://api.openai.com/v1
     const val DEFAULT_MODEL = "deepseek-chat" // 或者 gpt-3.5-turbo
@@ -73,4 +74,9 @@ object AiSettingsStore {
     var systemPrompt: String
         get() = prefs?.getString(KEY_SYSTEM_PROMPT, DEFAULT_PROMPT) ?: DEFAULT_PROMPT
         set(value) = prefs?.edit()?.putString(KEY_SYSTEM_PROMPT, value)?.apply()!!
+    
+    /** 是否启用结构化消息解析（TIM/QQ 专用） */
+    var enableStructuredParsing: Boolean
+        get() = prefs?.getBoolean(KEY_STRUCTURED_PARSING, true) ?: true  // 默认开启
+        set(value) = prefs?.edit()?.putBoolean(KEY_STRUCTURED_PARSING, value)?.apply()!!
 }

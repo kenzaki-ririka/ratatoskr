@@ -97,6 +97,36 @@ fun AiSettingsScreen(modifier: Modifier = Modifier) {
                 )
             }
         }
+        
+        // 3. 采集设置
+        var enableStructuredParsing by remember { mutableStateOf(AiSettingsStore.enableStructuredParsing) }
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("采集设置", style = MaterialTheme.typography.titleMedium)
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("结构化消息解析", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "为 TIM/QQ 识别发送者和消息内容",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = enableStructuredParsing,
+                        onCheckedChange = { 
+                            enableStructuredParsing = it
+                            AiSettingsStore.enableStructuredParsing = it
+                        }
+                    )
+                }
+            }
+        }
 
         // 保存按钮
         Button(
