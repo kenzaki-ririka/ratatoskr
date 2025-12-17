@@ -101,6 +101,7 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
     // New state for collected messages
     var showCollectedMessages by remember { mutableStateOf(false) }
     var collectedResult by remember { mutableStateOf<ChatMessageCollector.CollectionResult?>(null) }
+    var collectCompleted by remember { mutableStateOf(false) }  // 标记是否已采集完成（长按滚动后）
     
     val density = LocalDensity.current
     val config = LocalConfiguration.current
@@ -223,6 +224,7 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                                                 debugInfo = "累积采集 ${accumulatedMessages.size} 条消息"
                                             )
                                             showCollectedMessages = true
+                                            collectCompleted = true  // 标记已采集完成，防止 LaunchedEffect 重新采集
                                             isLoading = true
                                             break
                                         }
@@ -354,25 +356,33 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
         // Collect messages and generate AI suggestions
         LaunchedEffect(isLoading) {
             if (isLoading) {
-                // First, collect messages from screen
-                val result = withContext(Dispatchers.Default) {
-                    ChatMessageCollector.collect()
-                }
-                collectedResult = result
-                showCollectedMessages = true
-                
-                // Then, generate AI suggestions
-                val ctxStr = ChatContextStore.getLast()
-                val options = AiProvider.service.generateReplies(ctxStr, limit = AiSettingsStore.limit)
-                panelActions = options.map { opt ->
-                    ChatAction(opt.title, opt.text) {
-                        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("reply", opt.text))
-                        Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show()
+                try {
+                    // 只有没有采集完成时才重新采集（长按滚动后已经采集了）
+                    if (!collectCompleted) {
+                        val result = withContext(Dispatchers.Default) {
+                            ChatMessageCollector.collect()
+                        }
+                        collectedResult = result
+                        showCollectedMessages = true
                     }
+                    
+                    // 生成 AI 建议
+                    val ctxStr = ChatContextStore.getLast()
+                    val options = AiProvider.service.generateReplies(ctxStr, limit = AiSettingsStore.limit)
+                    panelActions = options.map { opt ->
+                        ChatAction(opt.title, opt.text) {
+                            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("reply", opt.text))
+                            Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    expanded = true
+                } catch (e: Exception) {
+                    Toast.makeText(ctx, "生成失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                } finally {
+                    isLoading = false
+                    collectCompleted = false  // 重置标志
                 }
-                isLoading = false
-                expanded = true
             }
         }
         LaunchedEffect(expanded, closingByAction, pendingAction) {
