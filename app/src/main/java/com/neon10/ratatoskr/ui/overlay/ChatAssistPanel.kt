@@ -40,7 +40,9 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,7 +74,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.isActive
 import com.neon10.ratatoskr.ai.AiProvider
 import com.neon10.ratatoskr.data.ChatContextStore
 import com.neon10.ratatoskr.data.AiSettingsStore
@@ -81,7 +83,10 @@ import com.neon10.ratatoskr.service.ChatAccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.util.Log
 import android.widget.Toast
+
+private const val TAG = "ChatAssistPanel"
 
 data class ChatAction(val title: String, val text: String, val onClick: () -> Unit = {})
 
@@ -102,6 +107,28 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
     var showCollectedMessages by remember { mutableStateOf(false) }
     var collectedResult by remember { mutableStateOf<ChatMessageCollector.CollectionResult?>(null) }
     var collectCompleted by remember { mutableStateOf(false) }  // 标记是否已采集完成（长按滚动后）
+    
+    // ===== 修复：将滚动控制变量提到外部 =====
+    val keepScrolling = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+    var scrollJob by remember { mutableStateOf<Job?>(null) }
+    val coroutineScope = rememberCoroutineScope()  // 使用 Compose 管理的协程作用域
+    
+    // 停止滚动的函数
+    val stopScrolling: () -> Unit = {
+        Log.d(TAG, "stopScrolling called, current keepScrolling=${keepScrolling.get()}")
+        keepScrolling.set(false)
+        scrollJob?.cancel()
+        scrollJob = null
+    }
+    
+    // 组件销毁时确保停止滚动
+    DisposableEffect(Unit) {
+        onDispose {
+            Log.d(TAG, "ChatAssistPanel disposing, stopping scroll")
+            stopScrolling()
+        }
+    }
+    // ===== 修复结束 =====
     
     val density = LocalDensity.current
     val config = LocalConfiguration.current
@@ -133,7 +160,8 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                     if (isScrolling) MaterialTheme.colorScheme.tertiary 
                     else MaterialTheme.colorScheme.primary
                 )
-                .pointerInput(expanded, showCollectedMessages, isLoading, isScrolling) {
+                // ===== 修复：移除 isScrolling 作为 key =====
+                .pointerInput(expanded, showCollectedMessages, isLoading) {
                     val longPressTimeout = 300L
                     awaitEachGesture {
                         val down = awaitFirstDown()
@@ -171,6 +199,8 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                                 } else {
                                     longPressTriggered = true
                                     isScrolling = true
+                                    keepScrolling.set(true)
+                                    Log.d(TAG, "Long press triggered, starting scroll")
                                     
                                     // 累积采集的消息
                                     var accumulatedMessages = mutableListOf<ChatMessageCollector.ChatMessage>()
@@ -181,58 +211,90 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                                     accumulatedMessages.addAll(initialResult.messages)
                                     lastAppName = initialResult.appName
                                     
-                                    // 用于控制滚动循环的标志（AtomicBoolean 保证线程安全）
-                                    val keepScrolling = java.util.concurrent.atomic.AtomicBoolean(true)
-                                    
-                                    // 启动持续滚动协程
-                                    val scrollJob = CoroutineScope(Dispatchers.Main).launch {
-                                        while (keepScrolling.get()) {
-                                            // 滚动
-                                            val success = service.scrollUpSuspend()
-                                            if (!success) break
-                                            
-                                            // 等待滚动动画完成
-                                            delay(400)
-                                            
-                                            if (!keepScrolling.get()) break
-                                            
-                                            // 采集新内容并合并
-                                            val newResult = ChatMessageCollector.collect()
-                                            accumulatedMessages = ChatMessageCollector.mergeMessages(
-                                                accumulatedMessages, 
-                                                newResult.messages
-                                            ).toMutableList()
-                                            lastAppName = newResult.appName ?: lastAppName
-                                            
-                                            // 滚动间隔
-                                            delay(100)
+                                    // ===== 修复：使用外部的 coroutineScope =====
+                                    scrollJob = coroutineScope.launch {
+                                        Log.d(TAG, "Scroll coroutine started")
+                                        try {
+                                            while (keepScrolling.get() && isActive) {
+                                                // 滚动前检查
+                                                if (!keepScrolling.get()) {
+                                                    Log.d(TAG, "Scroll cancelled before scrollUpSuspend")
+                                                    break
+                                                }
+                                                
+                                                // 滚动
+                                                val success = service.scrollUpSuspend()
+                                                if (!success) {
+                                                    Log.d(TAG, "scrollUpSuspend returned false, stopping")
+                                                    break
+                                                }
+                                                
+                                                // 滚动后检查
+                                                if (!keepScrolling.get()) {
+                                                    Log.d(TAG, "Scroll cancelled after scrollUpSuspend")
+                                                    break
+                                                }
+                                                
+                                                // 等待滚动动画完成（拆分成小段以便更快响应取消）
+                                                repeat(8) {
+                                                    if (!keepScrolling.get() || !isActive) return@launch
+                                                    delay(50)
+                                                }
+                                                
+                                                if (!keepScrolling.get()) {
+                                                    Log.d(TAG, "Scroll cancelled after delay")
+                                                    break
+                                                }
+                                                
+                                                // 采集新内容并合并
+                                                val newResult = ChatMessageCollector.collect()
+                                                accumulatedMessages = ChatMessageCollector.mergeMessages(
+                                                    accumulatedMessages, 
+                                                    newResult.messages
+                                                ).toMutableList()
+                                                lastAppName = newResult.appName ?: lastAppName
+                                                
+                                                // 短暂间隔
+                                                if (!keepScrolling.get()) break
+                                                delay(100)
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.e(TAG, "Scroll coroutine exception: ${e.message}")
+                                        } finally {
+                                            Log.d(TAG, "Scroll coroutine ended, accumulated ${accumulatedMessages.size} messages")
                                         }
                                     }
                                     
                                     // 等待手指抬起
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        if (event.changes.all { !it.pressed }) {
-                                            // 手指抬起，停止滚动
-                                            keepScrolling.set(false)
-                                            isScrolling = false
-                                            scrollJob.cancel()
-                                            
-                                            // 用累积的消息更新结果
-                                            val finalContext = ChatMessageCollector.buildContext(accumulatedMessages)
-                                            ChatContextStore.setLast(finalContext)
-                                            
-                                            collectedResult = ChatMessageCollector.CollectionResult(
-                                                messages = accumulatedMessages.takeLast(20),
-                                                rawContext = finalContext,
-                                                appName = lastAppName,
-                                                debugInfo = "累积采集 ${accumulatedMessages.size} 条消息"
-                                            )
-                                            showCollectedMessages = true
-                                            collectCompleted = true  // 标记已采集完成，防止 LaunchedEffect 重新采集
-                                            isLoading = true
-                                            break
+                                    try {
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            if (event.changes.all { !it.pressed }) {
+                                                Log.d(TAG, "Finger up detected, stopping scroll")
+                                                // 手指抬起，停止滚动
+                                                stopScrolling()
+                                                isScrolling = false
+                                                
+                                                // 用累积的消息更新结果
+                                                val finalContext = ChatMessageCollector.buildContext(accumulatedMessages)
+                                                ChatContextStore.setLast(finalContext)
+                                                
+                                                collectedResult = ChatMessageCollector.CollectionResult(
+                                                    messages = accumulatedMessages.takeLast(20),
+                                                    rawContext = finalContext,
+                                                    appName = lastAppName,
+                                                    debugInfo = "累积采集 ${accumulatedMessages.size} 条消息"
+                                                )
+                                                showCollectedMessages = true
+                                                collectCompleted = true  // 标记已采集完成，防止 LaunchedEffect 重新采集
+                                                isLoading = true
+                                                break
+                                            }
                                         }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Error waiting for finger up: ${e.message}")
+                                        stopScrolling()
+                                        isScrolling = false
                                     }
                                 }
                             }
@@ -628,4 +690,3 @@ private fun titleColor(title: String): Color {
         else -> MaterialTheme.colorScheme.primary
     }
 }
-
