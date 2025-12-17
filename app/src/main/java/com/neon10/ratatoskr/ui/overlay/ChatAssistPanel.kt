@@ -348,20 +348,32 @@ private fun CollectedMessagesPanel(
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                if (result.messages.isEmpty()) {
+                if (!ChatMessageCollector.isAccessibilityEnabled()) {
+                    // 无障碍服务未启用
                     Text(
-                        text = if (!ChatMessageCollector.isAccessibilityEnabled()) {
-                            "⚠️ 请先开启无障碍服务"
-                        } else {
-                            "未采集到消息，请确保在聊天界面使用"
-                        },
+                        text = "⚠️ 请先开启无障碍服务",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
-                } else {
+                } else if (result.messages.isNotEmpty()) {
+                    // 结构化消息模式：显示消息列表
                     result.messages.forEach { msg ->
                         MessageItem(msg)
                     }
+                } else if (result.rawContext.isNotBlank()) {
+                    // 非结构化模式：直接显示 rawContext（与发送给 API 的内容一致）
+                    Text(
+                        text = result.rawContext,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                } else {
+                    // 真正没有采集到内容
+                    Text(
+                        text = "未采集到消息，请确保在聊天界面使用",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
                 }
             }
             
