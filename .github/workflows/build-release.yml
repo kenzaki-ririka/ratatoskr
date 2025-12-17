@@ -23,8 +23,8 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
 
       - name: Get version info
         id: version
@@ -40,7 +40,7 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p release
-          cp app/build/outputs/apk/release/*.apk release/ratatoskr-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.commit_sha }}.apk
+          cp app/build/outputs/apk/debug/*.apk release/ratatoskr-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.commit_sha }}-debug.apk
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
