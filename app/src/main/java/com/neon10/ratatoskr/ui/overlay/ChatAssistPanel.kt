@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import kotlin.math.abs
 import androidx.compose.foundation.layout.Arrangement
@@ -103,13 +104,16 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
     var collectedResult by remember { mutableStateOf<ChatMessageCollector.CollectionResult?>(null) }
     var collectCompleted by remember { mutableStateOf(false) }  // 标记是否已采集完成（长按滚动后）
     
+    // 停止滚动的回调引用（用于覆盖层点击停止）
+    val stopScrollingRef = remember { mutableStateOf<(() -> Unit)?>(null) }
+    
     val density = LocalDensity.current
     val config = LocalConfiguration.current
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val bubbleSize = 56.dp
     
-    // 自定义 touch slop（5dp），手指移动超过此距离则判定为拖动
-    val customTouchSlop = with(density) { 5.dp.toPx() }
+    // 自定义 touch slop（8dp），手指移动超过此距离则判定为拖动
+    val customTouchSlop = with(density) { 8.dp.toPx() }
 
     val containerSize = bubbleSize
     val gap = 12.dp
@@ -180,60 +184,92 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                                     val initialResult = ChatMessageCollector.collect()
                                     accumulatedMessages.addAll(initialResult.messages)
                                     lastAppName = initialResult.appName
+                                    // android.util.Log.d("ChatAssistPanel", "Initial collect: ${initialResult.messages.size} msgs, app=${lastAppName}")
+                                    // initialResult.messages.forEachIndexed { i, msg ->
+                                    //     android.util.Log.d("ChatAssistPanel", "  [$i] ${if(msg.isFromSelf) "[我]" else "[对方]"}: ${msg.content.take(30)}...")
+                                    // }
                                     
                                     // 用于控制滚动循环的标志（AtomicBoolean 保证线程安全）
                                     val keepScrolling = java.util.concurrent.atomic.AtomicBoolean(true)
                                     
-                                    // 启动持续滚动协程
-                                    val scrollJob = CoroutineScope(Dispatchers.Main).launch {
-                                        while (keepScrolling.get()) {
-                                            // 滚动
-                                            val success = service.scrollUpSuspend()
-                                            if (!success) break
-                                            
-                                            // 等待滚动动画完成
-                                            delay(400)
-                                            
-                                            if (!keepScrolling.get()) break
-                                            
-                                            // 采集新内容并合并
-                                            val newResult = ChatMessageCollector.collect()
-                                            accumulatedMessages = ChatMessageCollector.mergeMessages(
-                                                accumulatedMessages, 
-                                                newResult.messages
-                                            ).toMutableList()
-                                            lastAppName = newResult.appName ?: lastAppName
-                                            
-                                            // 滚动间隔
-                                            delay(100)
-                                        }
+                                    // 设置停止回调，让覆盖层可以调用
+                                    var scrollJobRef: Job? = null
+                                    stopScrollingRef.value = {
+                                        // android.util.Log.d("ChatAssistPanel", "Stop callback triggered from overlay")
+                                        keepScrolling.set(false)
+                                        scrollJobRef?.cancel()
                                     }
                                     
-                                    // 等待手指抬起
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        if (event.changes.all { !it.pressed }) {
-                                            // 手指抬起，停止滚动
-                                            keepScrolling.set(false)
+                                    // 启动持续滚动协程
+                                    // android.util.Log.d("ChatAssistPanel", "Starting scroll job")
+                                    val scrollJob = CoroutineScope(Dispatchers.Main).launch {
+                                        try {
+                                            while (keepScrolling.get()) {
+                                                // android.util.Log.d("ChatAssistPanel", "Scrolling... keepScrolling=${keepScrolling.get()}")
+                                                // 滚动
+                                                val success = service.scrollUpSuspend()
+                                                // if (!success) {
+                                                //     android.util.Log.d("ChatAssistPanel", "Scroll failed or cancelled, breaking loop")
+                                                //     break
+                                                // }
+                                                
+                                                // 等待滚动动画完成
+                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] Before delay(400) - waiting for scroll animation")
+                                                delay(400)
+                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] After delay(400)")
+                                                
+                                                if (!keepScrolling.get()) break
+                                                
+                                                // 采集新内容并合并
+                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] Before collect()")
+                                                val newResult = ChatMessageCollector.collect()
+                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] After collect() - got ${newResult.messages.size} msgs")
+                                                val beforeCount = accumulatedMessages.size
+                                                accumulatedMessages = ChatMessageCollector.mergeMessages(
+                                                    accumulatedMessages, 
+                                                    newResult.messages
+                                                ).toMutableList()
+                                                val afterCount = accumulatedMessages.size
+                                                lastAppName = newResult.appName ?: lastAppName
+                                                // android.util.Log.d("ChatAssistPanel", "Scroll collect: new=${newResult.messages.size}, before=$beforeCount, after=$afterCount")
+                                                
+                                                // 滚动间隔
+                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] Before delay(100) - scroll interval")
+                                                delay(100)
+                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] After delay(100)")
+                                            }
+                                        } finally {
+                                            // 无论如何结束，都显示结果
+                                            // android.util.Log.d("ChatAssistPanel", "[TIMING] Scroll job ended, total: ${accumulatedMessages.size} msgs")
                                             isScrolling = false
-                                            scrollJob.cancel()
+                                            stopScrollingRef.value = null  // 清除回调
                                             
-                                            // 用累积的消息更新结果
                                             val finalContext = ChatMessageCollector.buildContext(accumulatedMessages)
                                             ChatContextStore.setLast(finalContext)
                                             
+                                            val debugMsg = "累积采集 ${accumulatedMessages.size} 条消息"
+                                            // android.util.Log.d("ChatAssistPanel", debugMsg)
                                             collectedResult = ChatMessageCollector.CollectionResult(
-                                                messages = accumulatedMessages.takeLast(20),
+                                                messages = accumulatedMessages,  // 显示全部消息
                                                 rawContext = finalContext,
                                                 appName = lastAppName,
-                                                debugInfo = "累积采集 ${accumulatedMessages.size} 条消息"
+                                                debugInfo = debugMsg
                                             )
                                             showCollectedMessages = true
-                                            collectCompleted = true  // 标记已采集完成，防止 LaunchedEffect 重新采集
+                                            collectCompleted = true
                                             isLoading = true
-                                            break
                                         }
-                                    }
+                                    }.also { scrollJobRef = it }  // 保存引用供回调使用
+                                    
+                                    // 等待手指抬起来停止滚动
+                                    // 注意：由于 awaitPointerEvent() 在这个上下文中不工作，
+                                    // 我们使用 waitForUpOrCancellation() 来等待手指抬起
+                                    // android.util.Log.d("ChatAssistPanel", "Waiting for finger up using waitForUpOrCancellation...")
+                                    val up = waitForUpOrCancellation()
+                                    // android.util.Log.d("ChatAssistPanel", "waitForUpOrCancellation returned: up=$up")
+                                    keepScrolling.set(false)
+                                    scrollJob.cancel()
+                                    stopScrollingRef.value = null  // 清除回调
                                 }
                             }
                         }
@@ -269,6 +305,33 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                     modifier = Modifier.align(Alignment.Center),
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // 滚动时的悬浮球遮罩层 - 点击悬浮球停止滚动
+        // 不使用全屏遮罩，否则会阻挡无障碍服务的滚动手势
+        if (isScrolling) {
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .size(bubbleSize)
+                    .background(MaterialTheme.colorScheme.error)
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {
+                        // android.util.Log.d("ChatAssistPanel", "Stop button clicked, stopping scroll")
+                        stopScrollingRef.value?.invoke()
+                    }
+                    .align(Alignment.TopStart)
+            ) {
+                // 停止图标 (方块)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(20.dp)
+                        .background(Color.White, RoundedCornerShape(3.dp))
                 )
             }
         }
