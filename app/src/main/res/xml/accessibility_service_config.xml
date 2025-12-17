@@ -5,7 +5,7 @@
     android:notificationTimeout="100"
     android:canRetrieveWindowContent="true"
     android:canRequestFilterKeyEvents="false"
-    android:canPerformGestures="false"
+    android:canPerformGestures="true"
     android:description="@string/accessibility_service_description"
     android:settingsActivity=""
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews" />
