@@ -68,8 +68,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineScope
 import com.neon10.ratatoskr.ai.AiProvider
 import com.neon10.ratatoskr.data.ChatContextStore
 import com.neon10.ratatoskr.data.AiSettingsStore
@@ -159,32 +162,87 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                                 }
                             }
                         } catch (e: PointerEventTimeoutCancellationException) {
-                            // 长按超时，且没有检测到拖动 → 触发长按
+                            // 长按超时，且没有检测到拖动 → 触发长按滚动
                             if (!dragDetected && !isLoading && !isScrolling) {
-                                longPressTriggered = true
-                                isScrolling = true
-                                ChatAccessibilityService.instance?.scrollUp {
-                                    isScrolling = false
-                                    isLoading = true
-                                } ?: run {
-                                    isScrolling = false
+                                val service = ChatAccessibilityService.instance
+                                if (service == null) {
                                     Toast.makeText(ctx, "请先开启无障碍服务", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    longPressTriggered = true
+                                    isScrolling = true
+                                    
+                                    // 累积采集的消息
+                                    var accumulatedMessages = mutableListOf<ChatMessageCollector.ChatMessage>()
+                                    var lastAppName: String? = null
+                                    
+                                    // 先采集当前屏幕
+                                    val initialResult = ChatMessageCollector.collect()
+                                    accumulatedMessages.addAll(initialResult.messages)
+                                    lastAppName = initialResult.appName
+                                    
+                                    // 启动持续滚动协程
+                                    var scrollJob: Job? = null
+                                    scrollJob = CoroutineScope(Dispatchers.Main).launch {
+                                        while (isScrolling) {
+                                            // 滚动
+                                            val success = service.scrollUpSuspend()
+                                            if (!success) break
+                                            
+                                            // 等待滚动动画完成
+                                            delay(400)
+                                            
+                                            // 采集新内容并合并
+                                            val newResult = ChatMessageCollector.collect()
+                                            accumulatedMessages = ChatMessageCollector.mergeMessages(
+                                                accumulatedMessages, 
+                                                newResult.messages
+                                            ).toMutableList()
+                                            lastAppName = newResult.appName ?: lastAppName
+                                            
+                                            // 滚动间隔
+                                            delay(100)
+                                        }
+                                    }
+                                    
+                                    // 等待手指抬起
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        if (event.changes.all { !it.pressed }) {
+                                            // 手指抬起，停止滚动
+                                            isScrolling = false
+                                            scrollJob?.cancel()
+                                            
+                                            // 用累积的消息更新结果
+                                            val finalContext = ChatMessageCollector.buildContext(accumulatedMessages)
+                                            ChatContextStore.setLast(finalContext)
+                                            
+                                            collectedResult = ChatMessageCollector.CollectionResult(
+                                                messages = accumulatedMessages.takeLast(20),
+                                                rawContext = finalContext,
+                                                appName = lastAppName,
+                                                debugInfo = "累积采集 ${accumulatedMessages.size} 条消息"
+                                            )
+                                            showCollectedMessages = true
+                                            isLoading = true
+                                            break
+                                        }
+                                    }
                                 }
                             }
                         }
                         
-                        // 等待手指抬起
-                        val up = waitForUpOrCancellation()
-                        
-                        // 如果不是长按且不是拖动，则为点击
-                        if (up != null && !longPressTriggered && !dragDetected) {
-                            if (expanded || showCollectedMessages) {
-                                closingByAction = false
-                                expanded = false
-                                showCollectedMessages = false
-                                collectedResult = null
-                            } else if (!isLoading && !isScrolling) {
-                                isLoading = true
+                        // 如果不是长按触发，等待手指抬起处理点击
+                        if (!longPressTriggered) {
+                            val up = waitForUpOrCancellation()
+                            if (up != null && !dragDetected) {
+                                if (expanded || showCollectedMessages) {
+                                    closingByAction = false
+                                    expanded = false
+                                    showCollectedMessages = false
+                                    collectedResult = null
+                                } else if (!isLoading && !isScrolling) {
+                                    isLoading = true
+                                }
                             }
                         }
                     }

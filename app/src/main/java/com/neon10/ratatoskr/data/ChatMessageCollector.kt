@@ -372,6 +372,46 @@ object ChatMessageCollector {
     fun isAccessibilityEnabled(): Boolean {
         return ChatAccessibilityService.instance != null
     }
+    
+    /**
+     * 合并两次采集的消息，基于重叠区域去重
+     * 保留真正的重复消息，只去除滚动产生的重复
+     */
+    fun mergeMessages(accumulated: List<ChatMessage>, newBatch: List<ChatMessage>): List<ChatMessage> {
+        if (accumulated.isEmpty()) return newBatch
+        if (newBatch.isEmpty()) return accumulated
+        
+        // 找到 newBatch 开头在 accumulated 尾部的最长匹配序列
+        val maxOverlap = minOf(accumulated.size, newBatch.size)
+        
+        for (overlapSize in maxOverlap downTo 1) {
+            val accTail = accumulated.takeLast(overlapSize)
+            val newHead = newBatch.take(overlapSize)
+            
+            // 比较序列是否匹配（sender + content 都相同）
+            val matches = accTail.zip(newHead).all { (a, b) ->
+                a.sender == b.sender && a.content == b.content && a.isFromSelf == b.isFromSelf
+            }
+            
+            if (matches) {
+                // 找到重叠，只追加新的部分
+                return accumulated + newBatch.drop(overlapSize)
+            }
+        }
+        
+        // 没有找到重叠，全部追加
+        return accumulated + newBatch
+    }
+    
+    /**
+     * 根据消息列表生成上下文字符串
+     */
+    fun buildContext(messages: List<ChatMessage>): String {
+        return messages.joinToString("\n") { msg ->
+            val prefix = if (msg.isFromSelf) "[我]" else "[${msg.sender ?: "对方"}]"
+            "$prefix: ${msg.content}"
+        }.take(2000)
+    }
 }
 
 

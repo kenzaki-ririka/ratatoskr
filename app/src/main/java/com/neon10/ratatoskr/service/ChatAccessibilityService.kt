@@ -7,6 +7,8 @@ import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * Native Android AccessibilityService for collecting chat messages.
@@ -105,6 +107,51 @@ class ChatAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Log.e(TAG, "Error scrolling: ${e.message}")
             callback?.invoke()
+        }
+    }
+    
+    /**
+     * 向上滚动屏幕（协程版本）
+     * @return 是否成功执行滚动
+     */
+    suspend fun scrollUpSuspend(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            Log.w(TAG, "Gesture API requires API 24+")
+            return false
+        }
+        
+        return suspendCancellableCoroutine { cont ->
+            try {
+                val displayMetrics = resources.displayMetrics
+                val screenWidth = displayMetrics.widthPixels
+                val screenHeight = displayMetrics.heightPixels
+                
+                val startX = screenWidth / 2f
+                val startY = screenHeight * 0.3f
+                val endY = screenHeight * 0.7f
+                
+                val path = Path().apply {
+                    moveTo(startX, startY)
+                    lineTo(startX, endY)
+                }
+                
+                val gesture = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(path, 0, 300))
+                    .build()
+                
+                dispatchGesture(gesture, object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        if (cont.isActive) cont.resume(true)
+                    }
+                    
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        if (cont.isActive) cont.resume(false)
+                    }
+                }, null)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error scrolling: ${e.message}")
+                if (cont.isActive) cont.resume(false)
+            }
         }
     }
 }
