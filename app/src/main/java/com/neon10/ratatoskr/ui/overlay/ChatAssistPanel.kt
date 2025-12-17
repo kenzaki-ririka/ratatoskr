@@ -181,16 +181,20 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                                     accumulatedMessages.addAll(initialResult.messages)
                                     lastAppName = initialResult.appName
                                     
+                                    // 用于控制滚动循环的标志（不依赖 Compose 状态）
+                                    @Volatile var keepScrolling = true
+                                    
                                     // 启动持续滚动协程
-                                    var scrollJob: Job? = null
-                                    scrollJob = CoroutineScope(Dispatchers.Main).launch {
-                                        while (isScrolling) {
+                                    val scrollJob = CoroutineScope(Dispatchers.Main).launch {
+                                        while (keepScrolling) {
                                             // 滚动
                                             val success = service.scrollUpSuspend()
                                             if (!success) break
                                             
                                             // 等待滚动动画完成
                                             delay(400)
+                                            
+                                            if (!keepScrolling) break
                                             
                                             // 采集新内容并合并
                                             val newResult = ChatMessageCollector.collect()
@@ -210,8 +214,9 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                                         val event = awaitPointerEvent()
                                         if (event.changes.all { !it.pressed }) {
                                             // 手指抬起，停止滚动
+                                            keepScrolling = false
                                             isScrolling = false
-                                            scrollJob?.cancel()
+                                            scrollJob.cancel()
                                             
                                             // 用累积的消息更新结果
                                             val finalContext = ChatMessageCollector.buildContext(accumulatedMessages)
