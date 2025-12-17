@@ -10,6 +10,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,6 +69,7 @@ import com.neon10.ratatoskr.ai.AiProvider
 import com.neon10.ratatoskr.data.ChatContextStore
 import com.neon10.ratatoskr.data.AiSettingsStore
 import com.neon10.ratatoskr.data.ChatMessageCollector
+import com.neon10.ratatoskr.service.ChatAccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -74,10 +77,12 @@ import android.widget.Toast
 
 data class ChatAction(val title: String, val text: String, val onClick: () -> Unit = {})
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
     var expanded by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
+    var isScrolling by remember { mutableStateOf(false) }  // 长按滚动状态
     var panelActions by remember { mutableStateOf(actions) }
     var closingByAction by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<ChatAction?>(null) }
@@ -113,20 +118,39 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
             modifier = Modifier
                 .clip(CircleShape)
                 .size(bubbleSize)
-                .background(MaterialTheme.colorScheme.primary)
-                .clickable {
-                    if (expanded || showCollectedMessages) {
-                        closingByAction = false
-                        expanded = false
-                        showCollectedMessages = false
-                        collectedResult = null
-                    } else if (!isLoading) {
-                        isLoading = true
+                .background(
+                    if (isScrolling) MaterialTheme.colorScheme.tertiary 
+                    else MaterialTheme.colorScheme.primary
+                )
+                .combinedClickable(
+                    onClick = {
+                        if (expanded || showCollectedMessages) {
+                            closingByAction = false
+                            expanded = false
+                            showCollectedMessages = false
+                            collectedResult = null
+                        } else if (!isLoading && !isScrolling) {
+                            isLoading = true
+                        }
+                    },
+                    onLongClick = {
+                        // 长按：向上滚动屏幕采集更多消息
+                        if (!isLoading && !isScrolling) {
+                            isScrolling = true
+                            ChatAccessibilityService.instance?.scrollUp {
+                                // 滚动完成后重新采集
+                                isScrolling = false
+                                isLoading = true
+                            } ?: run {
+                                isScrolling = false
+                                Toast.makeText(ctx, "请先开启无障碍服务", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
-                }
+                )
                 .align(Alignment.TopStart)
         ) {
-            if (isLoading) {
+            if (isLoading || isScrolling) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center).size(28.dp),
                     color = MaterialTheme.colorScheme.onPrimary,
@@ -180,6 +204,7 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                             .background(Color.Transparent)
                             .padding(0.dp)
                             .width(280.dp)
+                            .fillMaxHeight(1f)
                             .offset(y = yAdjust.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -187,6 +212,7 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                         // Collected Messages Panel (appears above suggestions)
                         AnimatedVisibility(
                             visible = showCollectedMessages && collectedResult != null,
+                            modifier = Modifier.weight(1f, fill = false),
                             enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { -it },
                             exit = fadeOut(tween(160)) + slideOutVertically(tween(160)) { -it }
                         ) {
