@@ -129,7 +129,7 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                     else MaterialTheme.colorScheme.primary
                 )
                 .pointerInput(expanded, showCollectedMessages, isLoading, isScrolling) {
-                    val longPressTimeout = viewConfiguration.longPressTimeoutMillis
+                    val longPressTimeout = 300L
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         val startPosition = down.position
