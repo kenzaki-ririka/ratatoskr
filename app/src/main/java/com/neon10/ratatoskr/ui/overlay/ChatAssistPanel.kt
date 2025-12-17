@@ -10,8 +10,12 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
+import kotlin.math.abs
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,7 +81,6 @@ import android.widget.Toast
 
 data class ChatAction(val title: String, val text: String, val onClick: () -> Unit = {})
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
     var expanded by remember { mutableStateOf(false) }
@@ -99,6 +102,9 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
     val config = LocalConfiguration.current
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val bubbleSize = 56.dp
+    
+    // 自定义 touch slop（5dp），手指移动超过此距离则判定为拖动
+    val customTouchSlop = with(density) { 5.dp.toPx() }
 
     val containerSize = bubbleSize
     val gap = 12.dp
@@ -122,32 +128,66 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                     if (isScrolling) MaterialTheme.colorScheme.tertiary 
                     else MaterialTheme.colorScheme.primary
                 )
-                .combinedClickable(
-                    onClick = {
-                        if (expanded || showCollectedMessages) {
-                            closingByAction = false
-                            expanded = false
-                            showCollectedMessages = false
-                            collectedResult = null
-                        } else if (!isLoading && !isScrolling) {
-                            isLoading = true
+                .pointerInput(expanded, showCollectedMessages, isLoading, isScrolling) {
+                    val longPressTimeout = viewConfiguration.longPressTimeoutMillis
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        val startPosition = down.position
+                        var longPressTriggered = false
+                        var dragDetected = false
+                        
+                        try {
+                            // 等待长按超时或手指抬起
+                            withTimeout(longPressTimeout) {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val currentPosition = event.changes.firstOrNull()?.position ?: break
+                                    
+                                    // 检查是否移动超过 5dp（自定义 touch slop）
+                                    val dx = abs(currentPosition.x - startPosition.x)
+                                    val dy = abs(currentPosition.y - startPosition.y)
+                                    if (dx > customTouchSlop || dy > customTouchSlop) {
+                                        dragDetected = true
+                                        break  // 判定为拖动，退出等待
+                                    }
+                                    
+                                    // 检查是否抬起
+                                    if (event.changes.all { !it.pressed }) {
+                                        break
+                                    }
+                                }
+                            }
+                        } catch (e: PointerEventTimeoutCancellationException) {
+                            // 长按超时，且没有检测到拖动 → 触发长按
+                            if (!dragDetected && !isLoading && !isScrolling) {
+                                longPressTriggered = true
+                                isScrolling = true
+                                ChatAccessibilityService.instance?.scrollUp {
+                                    isScrolling = false
+                                    isLoading = true
+                                } ?: run {
+                                    isScrolling = false
+                                    Toast.makeText(ctx, "请先开启无障碍服务", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         }
-                    },
-                    onLongClick = {
-                        // 长按：向上滚动屏幕采集更多消息
-                        if (!isLoading && !isScrolling) {
-                            isScrolling = true
-                            ChatAccessibilityService.instance?.scrollUp {
-                                // 滚动完成后重新采集
-                                isScrolling = false
+                        
+                        // 等待手指抬起
+                        val up = waitForUpOrCancellation()
+                        
+                        // 如果不是长按且不是拖动，则为点击
+                        if (up != null && !longPressTriggered && !dragDetected) {
+                            if (expanded || showCollectedMessages) {
+                                closingByAction = false
+                                expanded = false
+                                showCollectedMessages = false
+                                collectedResult = null
+                            } else if (!isLoading && !isScrolling) {
                                 isLoading = true
-                            } ?: run {
-                                isScrolling = false
-                                Toast.makeText(ctx, "请先开启无障碍服务", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
-                )
+                }
                 .align(Alignment.TopStart)
         ) {
             if (isLoading || isScrolling) {
