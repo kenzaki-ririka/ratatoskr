@@ -112,8 +112,8 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val bubbleSize = 56.dp
     
-    // 自定义 touch slop（8dp），手指移动超过此距离则判定为拖动
-    val customTouchSlop = with(density) { 8.dp.toPx() }
+    // 自定义 touch slop（12dp），手指移动超过此距离则判定为拖动
+    val customTouchSlop = with(density) { 12.dp.toPx() }
 
     val containerSize = bubbleSize
     val gap = 12.dp
@@ -176,18 +176,20 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                                     longPressTriggered = true
                                     isScrolling = true
                                     
-                                    // 累积采集的消息
-                                    var accumulatedMessages = mutableListOf<ChatMessageCollector.ChatMessage>()
-                                    var lastAppName: String? = null
-                                    
-                                    // 先采集当前屏幕
+                                    // 先采集当前屏幕，确定模式
                                     val initialResult = ChatMessageCollector.collect()
-                                    accumulatedMessages.addAll(initialResult.messages)
-                                    lastAppName = initialResult.appName
-                                    // android.util.Log.d("ChatAssistPanel", "Initial collect: ${initialResult.messages.size} msgs, app=${lastAppName}")
-                                    // initialResult.messages.forEachIndexed { i, msg ->
-                                    //     android.util.Log.d("ChatAssistPanel", "  [$i] ${if(msg.isFromSelf) "[我]" else "[对方]"}: ${msg.content.take(30)}...")
-                                    // }
+                                    var lastAppName: String? = initialResult.appName
+                                    val isStructured = ChatMessageCollector.isStructuredMode(lastAppName)
+                                    
+                                    // 根据模式选择累积方式
+                                    var accumulatedMessages = if (isStructured) 
+                                        initialResult.messages.toMutableList() 
+                                    else 
+                                        mutableListOf()
+                                    var accumulatedRawContext = if (!isStructured) 
+                                        initialResult.rawContext 
+                                    else 
+                                        ""
                                     
                                     // 用于控制滚动循环的标志（AtomicBoolean 保证线程安全）
                                     val keepScrolling = java.util.concurrent.atomic.AtomicBoolean(true)
@@ -214,43 +216,56 @@ fun ChatAssistPanel(actions: List<ChatAction> = emptyList()) {
                                                 // }
                                                 
                                                 // 等待滚动动画完成
-                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] Before delay(400) - waiting for scroll animation")
-                                                delay(400)
+                                                delay(300)
                                                 // android.util.Log.d("ChatAssistPanel", "[TIMING] After delay(400)")
                                                 
                                                 if (!keepScrolling.get()) break
                                                 
                                                 // 采集新内容并合并
-                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] Before collect()")
                                                 val newResult = ChatMessageCollector.collect()
-                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] After collect() - got ${newResult.messages.size} msgs")
-                                                val beforeCount = accumulatedMessages.size
-                                                accumulatedMessages = ChatMessageCollector.mergeMessages(
-                                                    accumulatedMessages, 
-                                                    newResult.messages
-                                                ).toMutableList()
-                                                val afterCount = accumulatedMessages.size
                                                 lastAppName = newResult.appName ?: lastAppName
-                                                // android.util.Log.d("ChatAssistPanel", "Scroll collect: new=${newResult.messages.size}, before=$beforeCount, after=$afterCount")
+                                                
+                                                if (isStructured) {
+                                                    // 结构化模式：累积 messages
+                                                    accumulatedMessages = ChatMessageCollector.mergeMessages(
+                                                        accumulatedMessages, 
+                                                        newResult.messages
+                                                    ).toMutableList()
+                                                } else {
+                                                    // 非结构化模式：累积 rawContext
+                                                    accumulatedRawContext = ChatMessageCollector.mergeRawContext(
+                                                        accumulatedRawContext,
+                                                        newResult.rawContext
+                                                    )
+                                                }
                                                 
                                                 // 滚动间隔
-                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] Before delay(100) - scroll interval")
-                                                delay(100)
-                                                // android.util.Log.d("ChatAssistPanel", "[TIMING] After delay(100)")
+                                                delay(50)
                                             }
                                         } finally {
                                             // 无论如何结束，都显示结果
-                                            // android.util.Log.d("ChatAssistPanel", "[TIMING] Scroll job ended, total: ${accumulatedMessages.size} msgs")
                                             isScrolling = false
                                             stopScrollingRef.value = null  // 清除回调
                                             
-                                            val finalContext = ChatMessageCollector.buildContext(accumulatedMessages)
+                                            // 根据模式生成最终结果
+                                            val finalContext: String
+                                            val finalMessages: List<ChatMessageCollector.ChatMessage>
+                                            val debugMsg: String
+                                            
+                                            if (isStructured) {
+                                                finalContext = ChatMessageCollector.buildContext(accumulatedMessages)
+                                                finalMessages = accumulatedMessages
+                                                debugMsg = "累积采集 ${accumulatedMessages.size} 条消息"
+                                            } else {
+                                                finalContext = accumulatedRawContext.take(2000)
+                                                finalMessages = emptyList()
+                                                debugMsg = "累积采集 ${accumulatedRawContext.lines().size} 行文本"
+                                            }
+                                            
                                             ChatContextStore.setLast(finalContext)
                                             
-                                            val debugMsg = "累积采集 ${accumulatedMessages.size} 条消息"
-                                            // android.util.Log.d("ChatAssistPanel", debugMsg)
                                             collectedResult = ChatMessageCollector.CollectionResult(
-                                                messages = accumulatedMessages,  // 显示全部消息
+                                                messages = finalMessages,
                                                 rawContext = finalContext,
                                                 appName = lastAppName,
                                                 debugInfo = debugMsg

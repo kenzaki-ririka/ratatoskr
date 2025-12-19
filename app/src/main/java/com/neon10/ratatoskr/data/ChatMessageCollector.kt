@@ -414,6 +414,43 @@ object ChatMessageCollector {
             "$prefix: ${msg.content}"
         }.take(2000)
     }
+    
+    /**
+     * 合并两次采集的原始文本（非结构化模式）
+     * 向上滚动时：newRaw 是更早的内容，应该放在 accumulated 前面
+     * 使用行级别的重叠检测去重
+     */
+    fun mergeRawContext(accumulated: String, newRaw: String): String {
+        if (accumulated.isBlank()) return newRaw
+        if (newRaw.isBlank()) return accumulated
+        
+        val accLines = accumulated.lines()
+        val newLines = newRaw.lines()
+        
+        // newLines 的尾部可能与 accLines 的开头重叠
+        val maxOverlap = minOf(accLines.size, newLines.size)
+        
+        for (overlapSize in maxOverlap downTo 1) {
+            val newTail = newLines.takeLast(overlapSize)
+            val accHead = accLines.take(overlapSize)
+            
+            if (newTail == accHead) {
+                // 找到重叠：newLines（更早）在前 + accLines（去除重叠部分）
+                return (newLines + accLines.drop(overlapSize)).joinToString("\n")
+            }
+        }
+        
+        // 没有找到重叠，newLines（更早的）放前面
+        return (newLines + accLines).joinToString("\n")
+    }
+    
+    /**
+     * 判断当前是否为结构化解析模式
+     */
+    fun isStructuredMode(appName: String?): Boolean {
+        val isTIMOrQQ = appName == "com.tencent.tim" || appName == "com.tencent.mobileqq"
+        return isTIMOrQQ && AiSettingsStore.enableStructuredParsing
+    }
 }
 
 
