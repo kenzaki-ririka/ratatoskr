@@ -232,8 +232,8 @@ object ChatMessageCollector {
                             sender = "我"
                             isFromSelf = true
                         } else {
-                            // 使用当前发送者，如果没有则沿用上一个，再没有显示[群友]
-                            sender = lastSender ?: "[群友]"
+                            // 使用当前发送者，如果没有则沿用上一个，再没有显示群友
+                            sender = lastSender ?: "群友"
                             isFromSelf = false
                         }
                     } else {
@@ -375,32 +375,34 @@ object ChatMessageCollector {
     
     /**
      * 合并两次采集的消息，基于重叠区域去重
+     * 向上滚动时：newBatch 是更早的消息，应该放在 accumulated 前面
      * 保留真正的重复消息，只去除滚动产生的重复
      */
     fun mergeMessages(accumulated: List<ChatMessage>, newBatch: List<ChatMessage>): List<ChatMessage> {
         if (accumulated.isEmpty()) return newBatch
         if (newBatch.isEmpty()) return accumulated
         
-        // 找到 newBatch 开头在 accumulated 尾部的最长匹配序列
+        // 向上滚动时：newBatch 是更早的消息（屏幕上方）
+        // newBatch 的尾部可能与 accumulated 的开头重叠
         val maxOverlap = minOf(accumulated.size, newBatch.size)
         
         for (overlapSize in maxOverlap downTo 1) {
-            val accTail = accumulated.takeLast(overlapSize)
-            val newHead = newBatch.take(overlapSize)
+            val newTail = newBatch.takeLast(overlapSize)
+            val accHead = accumulated.take(overlapSize)
             
             // 比较序列是否匹配（sender + content 都相同）
-            val matches = accTail.zip(newHead).all { (a, b) ->
+            val matches = newTail.zip(accHead).all { (a, b) ->
                 a.sender == b.sender && a.content == b.content && a.isFromSelf == b.isFromSelf
             }
             
             if (matches) {
-                // 找到重叠，只追加新的部分
-                return accumulated + newBatch.drop(overlapSize)
+                // 找到重叠：newBatch（更早）在前 + accumulated（去除重叠部分）
+                return newBatch + accumulated.drop(overlapSize)
             }
         }
         
-        // 没有找到重叠，全部追加
-        return accumulated + newBatch
+        // 没有找到重叠，newBatch（更早的）放前面
+        return newBatch + accumulated
     }
     
     /**
